@@ -1626,7 +1626,8 @@ function ScanToExcel({ onHome, currency }) {
             contents: [{
               parts: [
                 { inline_data: { mime_type: "image/jpeg", data: b64 } },
-                { text: `You are an expert OCR accounting auditor. Extract line items from this receipt image with 100% precision.
+                {
+                  text: `You are an expert OCR accounting auditor. Extract line items from this receipt image with 100% precision.
 
 RETURN ONLY THIS JSON SCHEMA (no markdown formatting, no backticks, no prose):
 {"items":[{"name":"Item Name","price":12.50,"qty":2}],"tax":1.50,"serviceCharge":2.00,"discount":0}
@@ -1815,7 +1816,7 @@ function HostView({ onHome, currency, user, profile }) {
 
       for (const receipt of receipts) {
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${GEMINI_KEY}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${GEMINI_KEY}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
