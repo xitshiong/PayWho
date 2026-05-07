@@ -1618,7 +1618,7 @@ function ScanToExcel({ onHome, currency }) {
     try {
       const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY;
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${GEMINI_KEY}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1626,7 +1626,18 @@ function ScanToExcel({ onHome, currency }) {
             contents: [{
               parts: [
                 { inline_data: { mime_type: "image/jpeg", data: b64 } },
-                { text: `Extract individual line items from this receipt. Return ONLY valid JSON, no markdown, no explanation:\n{"items":[{"name":"Item Name","price":12.50,"qty":2}],"tax":1.50,"serviceCharge":2.00,"discount":0}\nRules:\n- price = unit price for ONE item (divide total by qty)\n- qty = quantity shown on receipt, default 1\n- If same item appears multiple times, combine them into one entry with combined qty\n- IGNORE subtotal, total, grand total, rounding rows\n- tax = Govt SST amount, serviceCharge = Service Charge amount, discount = discount amount, all in ringgit not %\n- use 0 if any field absent` }
+                { text: `You are an expert OCR accounting auditor. Extract line items from this receipt image with 100% precision.
+
+RETURN ONLY THIS JSON SCHEMA (no markdown formatting, no backticks, no prose):
+{"items":[{"name":"Item Name","price":12.50,"qty":2}],"tax":1.50,"serviceCharge":2.00,"discount":0}
+
+STRICT EXTRACTION RULES:
+1. ITEM PRICE: Extract the raw unit price for ONE quantity. e.g., if "Burger 2 20.00", unit price is 10.00. Do NOT include currency symbols.
+2. EXCLUDE NON-ITEMS: DO NOT include Subtotal, Tax, Service Charge, Discount, Rounding, Cash, Change, or Total rows in the "items" array.
+3. COMBINE DUPLICATES: If the exact same item appears multiple times, combine them into one entry and sum the qty.
+4. MODIFIERS: Lines below an item with NO price (like "Less Sugar") are modifiers. Append them to the parent item's name: "Latte (Less Sugar)".
+5. FINANCIAL FIELDS: Use 0 if absent. discount must be a positive number.
+6. CLEAN NAMES: Remove asterisks (*), hashtags (#), bullet points, and currency symbols from all names.` }
               ]
             }],
             generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
@@ -1804,7 +1815,7 @@ function HostView({ onHome, currency, user, profile }) {
 
       for (const receipt of receipts) {
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_KEY}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${GEMINI_KEY}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1813,9 +1824,9 @@ function HostView({ onHome, currency, user, profile }) {
                 parts: [
                   { inline_data: { mime_type: "image/jpeg", data: receipt.b64 } },
                   {
-                    text: `You are a professional accounting auditor extracting data from a receipt image.
+                    text: `You are an expert OCR accounting auditor. Extract line items from this receipt image with 100% precision.
 
-RETURN ONLY THIS JSON SCHEMA — no markdown, no prose:
+RETURN ONLY THIS JSON SCHEMA (no markdown formatting, no backticks, no prose):
 {
   "items": [{"name": "Item Name", "price": 12.50, "qty": 1}],
   "tax": 1.50,
@@ -1825,26 +1836,21 @@ RETURN ONLY THIS JSON SCHEMA — no markdown, no prose:
   "grandTotal": 50.45
 }
 
-EXTRACTION RULES:
+STRICT EXTRACTION RULES:
 
-ITEMS:
-- Extract the ORIGINAL unit price (before any discount), e.g. if the receipt shows "30.00  4.50  1  25.50", the price is 30.00.
-- qty is always the number in the Qty column.
-- DO NOT combine duplicate items. List every line separately.
-- Remove leading symbols (*, #, @) from item names.
-- Modifier lines (e.g. "NORMAL ICE", "CHEESE SAUCE") with no price of their own: append them to the parent item name in parentheses. e.g. "Basics (Iced Lemon Tea)(Normal Ice)"
-
-TOTALS:
-- "tax": SST or GST shown at the bottom summary (positive number).
-- "serviceCharge": service charge if shown, else 0.
-- "discount": the TOTAL discount shown at the bottom of the receipt (positive number). This includes both per-item and any global discounts already summed by the receipt. DO NOT sum per-item discounts yourself.
-- "rounding": rounding adjustment shown on the receipt. Use SIGNED value (negative if the receipt shows "-RM0.02").
-- "rounding": rounding adjustment shown on the receipt. Use SIGNED value (negative if the receipt shows "-RM0.02").
-- "grandTotal": the final TOTAL printed on the receipt. Copy it exactly.
-
-BALANCE RULE (for your internal verification only — do not output this):
-sum(price * qty) - discount + tax + serviceCharge + rounding = grandTotal
-Verify this balances before returning. If it does not balance, recheck your extracted values.` }
+1. ITEM PRICE: Extract the raw unit price for ONE quantity. Do NOT extract the line total. e.g., for "Burger 2 20.00", the unit price is 10.00. If the receipt lists the unit price explicitly (e.g., "10.00 2 20.00"), use 10.00.
+2. EXCLUDE NON-ITEMS: DO NOT include Subtotal, Tax, SST, GST, Service Charge, Discount, Rounding, Cash, Change, Credit Card, or Total rows in the "items" array. These go ONLY into their dedicated fields at the root of the JSON.
+3. MODIFIERS: Lines below an item with NO price (like "Less Sugar", "Extra Spicy") are modifiers. Append them to the parent item's name: "Latte (Less Sugar)". DO NOT list them as separate items.
+4. QUANTITY: Default is 1 if missing. If the item name contains a multiplier like "1x Burger", the qty is 1, and the name is "Burger".
+5. CLEAN NAMES: Remove asterisks (*), hashtags (#), bullet points, and currency symbols (RM, $, MYR) from all names and numbers.
+6. DUPLICATES: DO NOT group duplicates. List every line exactly as it appears.
+7. FINANCIAL FIELDS: 
+   - tax: The total tax amount (e.g., SST, GST, VAT).
+   - serviceCharge: The service charge amount.
+   - discount: The total discount amount (return as a POSITIVE number).
+   - rounding: The rounding adjustment (can be positive or negative, e.g. -0.02).
+   - grandTotal: The final amount paid.
+8. MATHEMATICAL CHECK: Ensure: sum(items price * items qty) - discount + tax + serviceCharge + rounding = grandTotal. If the numbers don't perfectly balance, adjust the "rounding" field by a few cents until they do.` }
                 ]
               }],
               generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
