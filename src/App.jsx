@@ -1492,7 +1492,7 @@ function GuestView({ session, onBack, currency }) {
         <div style={{ padding: "4px 24px 90px" }}>
           {items.map(item => {
             const paidInfo = paidMap[item.id];
-            const paidBy = paidInfo?.payers || (paidInfo ? [paidInfo] : []);
+            const paidBy = (paidInfo?.payers || (paidInfo ? [paidInfo] : [])).map(p => typeof p === 'object' ? (p.name || "Host") : p);
             const alreadyPaid = paidBy.includes(name);
             const totalSplit = paidInfo?.total || splits[item.id] || 1;
             const splitPrice = parseFloat(item.price || 0) / totalSplit;
@@ -2263,7 +2263,7 @@ Verify this balances before returning. If it does not balance, recheck your extr
             </div>
             {items.map(i => {
               const paidInfo = paidMap[i.id];
-              const payers = paidInfo?.payers || (paidInfo ? [paidInfo] : []);
+              const payers = (paidInfo?.payers || (paidInfo ? [paidInfo] : [])).map(p => typeof p === 'object' ? (p.name || "Host") : p);
               const isPaid = payers.length > 0;
               return (
                 <div key={i.id} className={`line-item ${isPaid ? "paid" : ""}`} style={{ borderBottom: "1px dotted var(--ink-faint)" }}>
@@ -2511,7 +2511,7 @@ function HostReturn({ onHome, currency, user, profile }) {
             </div>
             {session.items.filter(i => paidMap[i.id]).map(i => {
               const paidInfo = paidMap[i.id];
-              const payers = paidInfo?.payers || [paidInfo];
+              const payers = (paidInfo?.payers || [paidInfo]).map(p => typeof p === 'object' ? (p.name || "Host") : p);
               return (
                 <div key={i.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "1px dotted var(--ink-faint)", opacity: 0.5 }}>
                   <div style={{ flex: 1 }}>
@@ -2545,7 +2545,8 @@ function HostReturn({ onHome, currency, user, profile }) {
           const rows = ["Item\tPrice\tTax\tTotal\tPaid By"];
           session.items.forEach(i => {
             const paidInfo = paidMap[i.id];
-            const payers = paidInfo?.payers ? paidInfo.payers.join(", ") : (paidInfo || "");
+            const payersArray = (paidInfo?.payers || (paidInfo ? [paidInfo] : [])).map(p => typeof p === 'object' ? (p.name || "Host") : p);
+            const payers = payersArray.join(", ");
             const originalPrice = i.rawPrice || i.price;
             const itemTax = i.itemTax || 0;
             rows.push(`${i.name}\t${originalPrice.toFixed(2)}\t${itemTax.toFixed(2)}\t${parseFloat(i.price).toFixed(2)}\t${payers}`);
