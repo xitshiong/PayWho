@@ -1618,7 +1618,7 @@ function ScanToExcel({ onHome, currency }) {
     try {
       const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY;
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${GEMINI_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite-preview:generateContent?key=${GEMINI_KEY}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
