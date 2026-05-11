@@ -614,14 +614,18 @@ body {
 /* ── GUEST ITEMS ── */
 .guest-item {
   display: flex; align-items: center; gap: 14px;
-  padding: 16px 0;
-  border-bottom: 1px dotted var(--ink-faint);
+  padding: 14px 12px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  border: 2px solid transparent;
   cursor: pointer;
   transition: all 0.15s;
   min-height: 60px;
+  opacity: 0.7;
 }
 .guest-item:last-of-type { border-bottom: none; }
 .guest-item:active { opacity: 0.7; }
+.guest-item:hover { background: rgba(184, 255, 0, 0.1); }
 
 .g-check {
   width: 28px; height: 28px;
@@ -634,10 +638,16 @@ body {
   background: transparent;
 }
 
+.guest-item.sel {
+  background: var(--neon-lime);
+  border-color: var(--ink);
+  opacity: 1;
+}
+
 .guest-item.sel .g-check {
-  background: var(--neon-pink);
-  border-color: var(--neon-pink);
-  color: white;
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--neon-lime);
 }
 
 .g-name {
@@ -656,8 +666,8 @@ body {
   font-weight: 500;
 }
 
-.guest-item.sel .g-name { color: var(--neon-pink); }
-.guest-item.sel .g-price { color: var(--neon-pink); }
+.guest-item.sel .g-name { color: var(--ink); }
+.guest-item.sel .g-price { color: var(--ink); }
 
 /* ── STICKY TOTAL ── */
 .sticky-total {
