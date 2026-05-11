@@ -1284,10 +1284,11 @@ async function load(code) {
     .limit(1);
   if (!data || error || data.length === 0) return null;
   const row = data[0];
+  const qrImage = localStorage.getItem(`ks_qr_${code}`) || null;
   return {
     code: row.code,
     items: row.items,
-    qrImage: row.qr_image,
+    qrImage: row.qr_image || qrImage,
     paid: row.paid,
     tableName: row.table_name,
     tableDate: row.table_date
@@ -1944,7 +1945,19 @@ STRICT EXTRACTION RULES:
   const handleQR = f => {
     if (!f?.type.startsWith("image/")) return;
     const r = new FileReader();
-    r.onload = e => setQrImg(e.target.result);
+    r.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const max = 400;
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        setQrImg(canvas.toDataURL("image/jpeg", 0.7));
+      };
+      img.src = e.target.result;
+    };
     r.readAsDataURL(f);
   };
 
