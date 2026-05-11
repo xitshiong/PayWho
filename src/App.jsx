@@ -1616,106 +1616,34 @@ function ScanToExcel({ onHome, currency }) {
   const scanReceipt = async () => {
     setLoading(true); setErr("");
     try {
-      const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { inline_data: { mime_type: "image/jpeg", data: b64 } },
-                {
-                  text: `Extract ALL line items from this Malaysian receipt with 100% accuracy.
+      const OR_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
+      const res = await fetch(`https://openrouter.ai/api/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OR_KEY}` },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash-lite",
+          messages: [{ role: "user", content: [
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } },
+            { type: "text", text: `You are an expert OCR accounting auditor. Extract line items from this receipt image with 100% precision.
 
-OUTPUT FORMAT (raw JSON only, no markdown, no backticks, no explanation):
+RETURN ONLY THIS JSON SCHEMA (no markdown formatting, no backticks, no prose):
 {"items":[{"name":"Item Name","price":12.50,"qty":2}],"tax":1.50,"serviceCharge":2.00,"discount":0}
 
-CRITICAL RULES:
-
-1. ITEM IDENTIFICATION
-   - Items have BOTH a name AND a price on the same line or adjacent lines
-   - Common patterns: "Nasi Lemak 8.50" or "Teh Tarik x2 7.00" or "Roti Canai\n3.50"
-   - Accept items in ANY language (English/Malay/Chinese/Tamil)
-   - If line has price but no clear item name, use visible text as name
-
-2. PRICE EXTRACTION (CRITICAL)
-   - Extract UNIT price for ONE item, not line total
-   - ALWAYS use the RIGHTMOST number on the item line as the price
-   - Pattern "Item Qty Total": divide Total by Qty. Example: "Burger 2 20.00" → price=10.00, qty=2
-   - Pattern "Item x Qty Total": divide Total by Qty. Example: "Milo x3 12.00" → price=4.00, qty=3
-   - Pattern "Item Price": use Price as-is. Example: "Roti Canai 3.50" → price=3.50, qty=1
-   - IGNORE prices in parentheses or after "-" symbol (these are promo calculations)
-   - Remove ALL currency symbols (RM, MYR, $, Rs)
-   - If price has comma as decimal (European format), convert to dot: "12,50" → 12.50
-   - Price must be from the MAIN item line, not from annotation/promo lines below it
-
-3. QUANTITY DETECTION
-   - Look for: "x2", "X 3", "2x", "QTY:2", or number before item
-   - If no qty indicator found, default qty=1
-   - If same item appears multiple times separately, COMBINE into one entry with summed qty
-
-4. EXCLUDE FROM ITEMS ARRAY
-   - Subtotal, Sub Total, Sub-Total
-   - Tax, SST, GST, Cukai, Service Tax
-   - Service Charge, SC, Caj Perkhidmatan
-   - Discount, Diskaun, Promo
-   - Rounding, Rounding Adj, Pembundaran
-   - Total, Grand Total, Jumlah, Net Total
-   - Cash, Change, Baki
-   - Payment method lines (Card, TNG, GrabPay, Visa, etc)
-   - Promo calculation lines (lines with "-" showing discount math like "17.92-8.58")
-   - Lines starting with * or # (usually promo/discount annotations)
-   - Sub-items indented under meal sets that have NO price
-
-5. MODIFIERS & ADD-ONS
-   - Lines with NO price below an item = modifier
-   - Examples: "Less Sugar", "Kurang Manis", "Extra Cheese", "加冰"
-   - Append to parent item: "Kopi (Kurang Manis)"
-   - If modifier has price, treat as separate item
-
-6. TAX & CHARGES (extract to separate fields)
-   - tax: SST/GST/Tax amount (look for 6% or 8% indicators)
-   - serviceCharge: SC/Service Charge (often 10%)
-   - discount: Discount/Promo amount (must be positive number, will be subtracted)
-   - Use 0 if field not found
-   - Rounding adjustments: add to tax field
-
-7. NAME CLEANING
-   - Remove: *, #, •, -, currency symbols
-   - Keep: parentheses for modifiers, language characters
-   - Trim whitespace
-
-8. EDGE CASES
-   - Handwritten totals: use best OCR interpretation
-   - Blurry prices: make best estimate from visible digits
-   - Split items across lines: combine into single item
-   - Multiple receipts in image: extract ALL items from ALL receipts
-   - No clear items visible: return empty items array
-
-9. VALIDATION
-   - Every item MUST have name (string) and price (number)
-   - qty must be integer ≥ 1
-   - All financial fields must be numbers (use 0 if absent)
-   - Item prices should be reasonable (0.50 to 500.00 range for Malaysian context)
-   - CRITICAL: Sum of all item prices (price × qty) should approximately equal the Subtotal on receipt
-   - If your extracted total differs from receipt Subtotal by >5%, re-check prices from rightmost column
-
-MALAYSIAN CONTEXT:
-- Common items: Nasi Lemak, Roti Canai, Teh Tarik, Milo, Kopi, Nasi Goreng, Maggi Goreng
-- Tax: 6% SST common, some 8%
-- Service charge: 10% common in restaurants
-- Currency: RM (Ringgit Malaysia)
-- Rounding: to nearest 5 sen common` }
-              ]
-            }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
-          })
-        }
-      );
+STRICT EXTRACTION RULES:
+1. ITEM PRICE: Extract ONLY items that have a price on the SAME line. If "Burger 2 20.00", unit price is 10.00. Do NOT include currency symbols.
+2. EXCLUDE NON-ITEMS: DO NOT include Subtotal, Tax, Service Charge, Discount, Rounding, Cash, Change, or Total rows in the "items" array.
+3. EXCLUDE SUB-ITEMS: Lines indented below a meal/set with NO price (like "Fries", "Coca Cola") are NOT separate items. Skip them completely.
+4. MODIFIERS: Lines with NO price like "Less Sugar" are modifiers. Append to parent: "Latte (Less Sugar)".
+5. FINANCIAL FIELDS: Use 0 if absent. discount must be positive number.
+6. CLEAN NAMES: Remove asterisks (*), hashtags (#), bullet points, currency symbols from names.
+7. ONLY EXTRACT LINES WITH PRICES: If a line has no price number, do NOT add it to items array.` }
+          ]}],
+          temperature: 0.1,
+          max_tokens: 8192
+        })
+      });
       const data = await res.json();
-      const txt = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      const txt = data.choices?.[0]?.message?.content || "";
       const parsed = JSON.parse(txt.replace(/```json|```/g, "").trim());
       setItems((parsed.items || []).map((it, i) => ({ id: i, name: it.name, price: parseFloat(it.price || 0), qty: parseInt(it.qty || 1) })));
       setTax(parseFloat(parsed.tax || 0));
@@ -1879,21 +1807,30 @@ function HostView({ onHome, currency, user, profile }) {
   const parseReceipt = async () => {
     setLoading(true); setErr("");
     try {
-      const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+      const OR_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
       const allBakedItems = [];
       let globalIdCounter = 1;
 
       for (const receipt of receipts) {
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${GEMINI_KEY}`,
+          `https://openrouter.ai/api/v1/chat/completions`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${OR_KEY}`
+            },
             body: JSON.stringify({
-              contents: [{
-                parts: [
-                  { inline_data: { mime_type: "image/jpeg", data: receipt.b64 } },
+              model: "google/gemini-2.5-flash-lite",
+              messages: [{
+                role: "user",
+                content: [
                   {
+                    type: "image_url",
+                    image_url: { url: `data:image/jpeg;base64,${receipt.b64}` }
+                  },
+                  {
+                    type: "text",
                     text: `You are an expert OCR accounting auditor. Extract line items from this receipt image with 100% precision.
 
 RETURN ONLY THIS JSON SCHEMA (no markdown formatting, no backticks, no prose):
@@ -1914,24 +1851,30 @@ STRICT EXTRACTION RULES:
 4. QUANTITY: Default is 1 if missing. If the item name contains a multiplier like "1x Burger", the qty is 1, and the name is "Burger".
 5. CLEAN NAMES: Remove asterisks (*), hashtags (#), bullet points, and currency symbols (RM, $, MYR) from all names and numbers.
 6. DUPLICATES: DO NOT group duplicates. List every line exactly as it appears.
-7. FINANCIAL FIELDS: 
+7. FINANCIAL FIELDS:
    - tax: The total tax amount (e.g., SST, GST, VAT).
    - serviceCharge: The service charge amount.
    - discount: The total discount amount (return as a POSITIVE number).
    - rounding: The rounding adjustment (can be positive or negative, e.g. -0.02).
    - grandTotal: The final amount paid.
-8. MATHEMATICAL CHECK: Ensure: sum(items price * items qty) - discount + tax + serviceCharge + rounding = grandTotal. If the numbers don't perfectly balance, adjust the "rounding" field by a few cents until they do.` }
+8. MATHEMATICAL CHECK: Ensure: sum(items price * items qty) - discount + tax + serviceCharge + rounding = grandTotal. If the numbers don't perfectly balance, adjust the "rounding" field by a few cents until they do.`
+                  }
                 ]
               }],
-              generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
+              temperature: 0.1,
+              max_tokens: 8192
             })
           }
         );
         const data = await res.json();
-        const txt = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        const txt = data.choices?.[0]?.message?.content || "";
         const parsed = JSON.parse(txt.replace(/```json|```/g, "").trim());
 
-        const rawItems = parsed.items || [];
+        // Filter out invalid items (price <= 0 or missing)
+        const rawItems = (parsed.items || []).filter(it => {
+          const price = parseFloat(it.price || 0);
+          return price > 0;
+        });
         const tax = Math.abs(parseFloat(parsed.tax || 0));
         const sc = Math.abs(parseFloat(parsed.serviceCharge || 0));
         const discount = Math.abs(parseFloat(parsed.discount || 0));
