@@ -1489,6 +1489,38 @@ function GuestView({ session, onBack, currency }) {
     </div>
   );
 
+  if (showQR) return (
+    <div className="receipt">
+      <div className="header-receipt" style={{ paddingBottom: 20 }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.6rem", fontWeight: 900, color: "var(--ink)" }}>
+          Scan & Pay
+        </div>
+        <div style={{ fontSize: "0.75rem", color: "var(--ink-faint)", letterSpacing: 1.5, textTransform: "uppercase", marginTop: 8 }}>
+          Pay exactly this amount
+        </div>
+      </div>
+      
+      <div style={{ textAlign: "center", padding: "30px 24px", borderBottom: "1px dashed var(--ink-faint)" }}>
+        <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: "2.8rem", fontWeight: 900, color: "var(--neon-pink)" }}>
+          {currency} {myTotal.toFixed(2)}
+        </div>
+      </div>
+
+      <div style={{ padding: "30px 24px", display: "flex", justifyContent: "center", background: "white", borderBottom: "1px dashed var(--ink-faint)" }}>
+        <img src={qrImage} alt="QR" style={{ width: "100%", maxWidth: "340px", height: "auto", objectFit: "contain", borderRadius: 8 }} />
+      </div>
+
+      <div style={{ padding: "24px" }}>
+        <button className="btn btn-neon" style={{ width: "100%", marginBottom: 12, padding: "20px", fontSize: "1rem" }} onClick={confirmPayment}>
+          ✅ I HAVE PAID
+        </button>
+        <button className="btn btn-outline" style={{ width: "100%", border: "none" }} onClick={() => setShowQR(false)}>
+          ← BACK
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <>
       <div className="receipt">
@@ -1574,29 +1606,6 @@ function GuestView({ session, onBack, currency }) {
           {qrImage ? "Pay Now →" : "Confirm →"}
         </button>
       </div>
-
-      {showQR && (
-        <div className="qr-modal" onClick={() => setShowQR(false)}>
-          <div className="qr-modal-inner" onClick={e => e.stopPropagation()}>
-            <div className="qr-modal-top">
-              <div className="qr-modal-title">Scan & Pay</div>
-              <div className="qr-modal-sub">Pay exactly this amount</div>
-            </div>
-            <div className="qr-modal-amt">{currency} {myTotal.toFixed(2)}</div>
-            <div className="qr-img-wrap">
-              <img src={qrImage} className="qr-img" alt="QR" />
-            </div>
-            <button className="qr-modal-close" style={{ background: "var(--neon-pink)", color: "var(--paper)" }}
-              onClick={confirmPayment}>
-              ✅ I Have Paid
-            </button>
-            <button className="qr-modal-close" style={{ background: "transparent", color: "var(--ink-faint)", borderTop: "1px dashed var(--ink-faint)" }}
-              onClick={() => setShowQR(false)}>
-              ← Back
-            </button>
-          </div>
-        </div>
-      )}
     </>
   );
 }
