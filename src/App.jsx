@@ -1788,10 +1788,9 @@ function HostView({ onHome, currency, user, profile }) {
   const [paidMap, setPaidMap] = useState({});
   const fileRef = useRef();
   const qrRef = useRef();
-  const STEPS = ["Receipt", "Details", "Items", "Your Items", "QR", "Share"];
+  const STEPS = ["Receipt", "Details", "Items", "QR", "Share"];
   const [tableName, setTableName] = useState("");
   const [tableDate, setTableDate] = useState(new Date().toISOString().split("T")[0]);
-  const [hostSplits, setHostSplits] = useState({}); // {itemId: splitCount}
 
   const handleFile = async (files) => {
     const newReceipts = [];
@@ -2005,19 +2004,15 @@ STRICT EXTRACTION RULES:
 
     // Pre-populate paid map with host splits
     const initialPaid = {};
-    Object.keys(hostSplits).forEach(itemId => {
-      const splitCount = hostSplits[itemId];
-      initialPaid[itemId] = { payers: ["Host"], total: splitCount };
-    });
 
     await save({ code: c, items, qrImage: qrImg, tableName: tableName || "My Table", tableDate, paid: initialPaid });
     setCode(c);
     setPaidMap(initialPaid);
-    setStep(5);
+    setStep(4);
   };
   // Poll paid status every 2s once live
   useEffect(() => {
-    if (step !== 5) return;
+    if (step !== 4) return;
     const t = setInterval(() => {
       loadSessionState(code).then(s => setPaidMap(s.paid));
     }, 2000);
@@ -2197,96 +2192,8 @@ STRICT EXTRACTION RULES:
           </div>
         </div>}
 
-        {/* STEP 3 - HOST PRE-SELECTION */}
+        {/* STEP 3 - QR */}
         {step === 3 && <div className="section">
-          <div className="section-head">Mark your items</div>
-          <div className="section-sub">Select what you're paying for — guests will see these as already claimed</div>
-
-          <div style={{ marginTop: 16 }}>
-            {items.map(it => {
-              const mySplit = hostSplits[it.id] || 0;
-              const isSelected = mySplit > 0;
-              const splitPrice = mySplit > 0 ? parseFloat(it.price) / mySplit : parseFloat(it.price);
-
-              return (
-                <div key={it.id}>
-                  <div
-                    className={`line-item host-selectable ${isSelected ? 'host-selected' : 'host-unselected'}`}
-                    onClick={() => {
-                      if (mySplit === 0) {
-                        setHostSplits(s => ({ ...s, [it.id]: 1 }));
-                      } else {
-                        setHostSplits(s => {
-                          const next = { ...s };
-                          delete next[it.id];
-                          return next;
-                        });
-                      }
-                    }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
-                      <div className="g-check">{isSelected ? "✓" : ""}</div>
-                      <span style={{
-                        flex: 1,
-                        fontSize: "0.85rem",
-                        color: "var(--ink)",
-                        fontFamily: "'DM Mono',monospace"
-                      }}>
-                        {it.name}{mySplit > 1 ? ` (split ${mySplit} ways)` : ""}
-                      </span>
-                    </div>
-                    <span style={{
-                      fontFamily: "'DM Mono',monospace",
-                      fontSize: "0.85rem",
-                      color: "var(--ink)",
-                      fontWeight: 500
-                    }}>
-                      {currency} {splitPrice.toFixed(2)}
-                    </span>
-                  </div>
-                  {isSelected && (
-                    <div style={{ padding: "8px 24px 12px 56px", display: "flex", alignItems: "center", gap: 12, fontSize: "0.75rem", color: "var(--ink)" }}>
-                      <span style={{ fontWeight: 500 }}>Split with:</span>
-                      <button onClick={() => setHostSplits(s => ({ ...s, [it.id]: Math.max(1, (s[it.id] || 1) - 1) }))}
-                        style={{ padding: "8px 16px", background: "var(--ink)", color: "var(--paper)", border: "none", borderRadius: 8, cursor: "pointer", fontSize: "1rem", fontWeight: 600, minWidth: 40 }}>−</button>
-
-                      <span style={{ minWidth: 80, textAlign: "center", fontWeight: 600, fontSize: "0.8rem" }}>
-                        {mySplit === 1 ? "no one" : `${mySplit - 1} other${mySplit > 2 ? "s" : ""}`}
-                      </span>
-
-                      <button onClick={() => setHostSplits(s => ({ ...s, [it.id]: (s[it.id] || 1) + 1 }))}
-                        style={{ padding: "8px 16px", background: "var(--ink)", color: "var(--paper)", border: "none", borderRadius: 8, cursor: "pointer", fontSize: "1rem", fontWeight: 600, minWidth: 40 }}>+</button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {Object.keys(hostSplits).length > 0 && (
-            <div style={{ marginTop: 16, padding: "12px 16px", background: "var(--paper-dark)", borderRadius: 4 }}>
-              <div style={{ fontSize: "0.7rem", color: "var(--ink-faint)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>
-                Your share
-              </div>
-              <div style={{ fontSize: "1rem", fontWeight: 700, color: "var(--ink)", fontFamily: "'DM Mono',monospace" }}>
-                {currency} {items.filter(it => hostSplits[it.id]).reduce((sum, it) => sum + parseFloat(it.price) / hostSplits[it.id], 0).toFixed(2)}
-              </div>
-            </div>
-          )}
-
-          <div style={{ marginTop: 20, fontSize: "0.75rem", color: "var(--ink-light)", padding: "12px", background: "var(--paper-dark)", borderRadius: 4, border: "1px dashed var(--ink-faint)" }}>
-            💡 <strong>Tip:</strong> Items you claim here will show as partially/fully paid when guests join. You can skip this if splitting everything equally.
-          </div>
-
-          <div style={{ marginTop: 20 }}>
-            <button className="btn btn-ink" onClick={() => setStep(4)}>
-              {Object.keys(hostSplits).length > 0 ? `Next: Payment QR →` : "Skip: Payment QR →"}
-            </button>
-            <button className="btn btn-outline" onClick={() => setStep(2)}>← Back</button>
-          </div>
-        </div>}
-
-        {/* STEP 4 - QR */}
-        {step === 4 && <div className="section">
           <div className="section-head">Your payment QR</div>
           <div className="section-sub">Guests scan this to pay you directly</div>
           {!qrImg ? (
@@ -2305,12 +2212,12 @@ STRICT EXTRACTION RULES:
           <div style={{ marginTop: 16 }}>
             <button className="btn btn-ink" disabled={!qrImg} onClick={finalise}>🔗 Generate Table Link →</button>
             {!qrImg && <div className="error-strip" style={{ marginTop: 12 }}>Upload your payment QR to continue — guests need it to pay you.</div>}
-            <button className="btn btn-outline" onClick={() => setStep(3)}>← Back</button>
+            <button className="btn btn-outline" onClick={() => setStep(2)}>← Back</button>
           </div>
         </div>}
 
-        {/* STEP 5 - SHARE */}
-        {step === 5 && <div className="section">
+        {/* STEP 4 - SHARE */}
+        {step === 4 && <div className="section">
           <div className="section-head">Table is live!</div>
           <div className="section-sub">Share with everyone at the table</div>
           <div className="share-receipt">
