@@ -2563,15 +2563,65 @@ function HostReturn({ onHome, currency, user, profile }) {
   );
 }
 
+// ── QR ONBOARDING ─────────────────────────────────────────────
+function QROnboarding({ onSkip, user, profile, setProfile }) {
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef();
+
+  const handleQR = async (f) => {
+    if (!f?.type.startsWith("image/")) return;
+    setUploading(true);
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const b64 = e.target.result;
+      const { error } = await supabase.from('profiles').update({ qr_url: b64 }).eq('id', user.id);
+      if (!error) {
+        setProfile(prev => ({ ...prev, qr_url: b64 }));
+        onSkip();
+      }
+      setUploading(false);
+    };
+    reader.readAsDataURL(f);
+  };
+
+  return (
+    <div className="receipt landing">
+      <div className="header-receipt">
+        <div className="profile-hero" style={{ borderBottom: "none", marginBottom: 0 }}>
+          <img src={user?.user_metadata?.picture || user?.user_metadata?.avatar_url || profile?.avatar_url} alt="User" className="profile-large-avatar" />
+          <div className="profile-name">Welcome, {profile?.full_name?.split(" ")[0]}!</div>
+        </div>
+      </div>
+
+      <div className="section" style={{ paddingTop: 0, textAlign: "center" }}>
+        <p className="vault-desc" style={{ fontSize: "0.8rem", marginBottom: "24px" }}>
+          Before hosting, upload your payment QR code. We'll automatically attach it to your receipts.
+        </p>
+
+        <div className="vault-qr-area" onClick={() => fileRef.current.click()} style={{ marginBottom: "24px", maxWidth: "240px", margin: "0 auto 24px" }}>
+          {profile?.qr_url ? (
+            <img src={profile.qr_url} alt="Default QR" className="vault-qr-preview" />
+          ) : (
+            <div className="vault-qr-placeholder">
+              <span>➕</span>
+              <p>Upload QR (Optional)</p>
+            </div>
+          )}
+          <input type="file" ref={fileRef} hidden accept="image/*" onChange={e => handleQR(e.target.files[0])} />
+        </div>
+        {uploading && <div className="spinner" style={{ margin: "10px auto" }} />}
+
+        <button className="btn btn-ink" style={{ marginBottom: "12px" }} onClick={() => fileRef.current.click()}>Select Image</button>
+        <button className="btn btn-outline" onClick={onSkip}>Skip for now</button>
+      </div>
+    </div>
+  );
+}
+
 // ── LANDING PAGE ──────────────────────────────────────────────
 function LandingPage({ onHost, onGuest, onScanExcel, onReturnTable, currency, onCurrencyChange, user, profile, onLogin, onProfile }) {
   const tables = JSON.parse(localStorage.getItem("ks_tables") || "[]");
-  const [notifState, setNotifState] = useState(() => (typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"));
-
-  const handleNotifReq = async () => {
-    const res = await requestNotificationPermission();
-    setNotifState(res);
-  };
 
   const oldTables = tables.filter(t => {
     const tableDate = new Date(t.date);
@@ -2592,15 +2642,6 @@ function LandingPage({ onHost, onGuest, onScanExcel, onReturnTable, currency, on
           <button className="login-pill" onClick={onLogin}>Host Login</button>
         )}
       </div>
-
-      {notifState === "default" && (
-        <div className="notify-banner">
-          <span>🔔 Want real-time payment alerts?</span>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn-notify-perm" onClick={handleNotifReq}>Enable</button>
-          </div>
-        </div>
-      )}
 
       <div className="hero">
         <img src={LOGO_SRC} alt="KakiSplit" className="hero-logo" />
@@ -2705,6 +2746,15 @@ export default function KakiSplit() {
       navigator.serviceWorker.register("/sw.js").catch(e => console.error("SW failed:", e));
     }
 
+    // Haptic feedback on button clicks
+    const handleClick = (e) => {
+      const btn = e.target.closest('button, .btn, .mode-card, .guest-item, .tool-chip, .line-item.host-selectable');
+      if (btn && !btn.disabled && navigator.vibrate) {
+        navigator.vibrate(10);
+      }
+    };
+    document.addEventListener('click', handleClick, { passive: true });
+
     // Listen for Auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       setUser(session?.user ?? null);
@@ -2716,7 +2766,10 @@ export default function KakiSplit() {
       setInitializing(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      document.removeEventListener('click', handleClick);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const fetchProfile = async (uid) => {
@@ -2793,6 +2846,19 @@ export default function KakiSplit() {
     }
   }, []);
 
+  const [showQROnboarding, setShowQROnboarding] = useState(false);
+
+  useEffect(() => {
+    if (user && profile && !profile.qr_url && !localStorage.getItem("ks_qr_skipped")) {
+      setShowQROnboarding(true);
+    }
+  }, [user, profile]);
+
+  const handleSkipQR = () => {
+    localStorage.setItem("ks_qr_skipped", "1");
+    setShowQROnboarding(false);
+  };
+
   const changeCurrency = (c) => {
     setCurrency(c);
     localStorage.setItem("ks_currency", c);
@@ -2813,12 +2879,28 @@ export default function KakiSplit() {
         )}
 
         {!initializing && <>
-          {!mode && (
+          {showQROnboarding && (
+            <QROnboarding 
+              onSkip={handleSkipQR}
+              user={user}
+              profile={profile}
+              setProfile={setProfile}
+            />
+          )}
+
+          {!showQROnboarding && !mode && (
             <LandingPage
-              onHost={() => setMode("host")}
+              onHost={user ? () => setMode("host") : handleLogin}
               onGuest={() => setMode("guest-code")}
-              onScanExcel={() => setMode("scan-excel")}
-              onReturnTable={code => { localStorage.setItem("ks_current_code", code); setMode("host-return"); }}
+              onScanExcel={user ? () => setMode("scan-excel") : handleLogin}
+              onReturnTable={code => {
+                if (user) {
+                  localStorage.setItem("ks_current_code", code);
+                  setMode("host-return");
+                } else {
+                  handleLogin();
+                }
+              }}
               currency={currency}
               onCurrencyChange={changeCurrency}
               user={user}
