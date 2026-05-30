@@ -2563,6 +2563,30 @@ function HostReturn({ onHome, currency, user, profile }) {
   );
 }
 
+// ── AUTH MODAL ────────────────────────────────────────────────
+function AuthModal({ onClose, onLogin }) {
+  return (
+    <div className="qr-modal" style={{ zIndex: 1000 }} onClick={onClose}>
+      <div className="qr-modal-inner" onClick={e => e.stopPropagation()}>
+        <div className="qr-modal-top">
+          <div className="qr-modal-title" style={{ fontSize: '1.2rem', marginBottom: 12 }}>Join KakiSplit</div>
+          <div className="qr-modal-sub" style={{ textTransform: 'none', lineHeight: 1.4 }}>
+            You need to be signed in to host a table or scan receipts.
+          </div>
+        </div>
+        
+        <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "12px" }}>
+          <button className="btn btn-ink" onClick={() => onLogin('google')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+            <span style={{ fontSize: '1.2rem', fontWeight: 900 }}>G</span> Sign in with Google
+          </button>
+        </div>
+        
+        <button className="qr-modal-close" onClick={onClose}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 // ── QR ONBOARDING ─────────────────────────────────────────────
 function QROnboarding({ onSkip, user, profile, setProfile }) {
   const [uploading, setUploading] = useState(false);
@@ -2805,10 +2829,10 @@ export default function KakiSplit() {
     }
   };
 
-  const handleLogin = async () => {
+  const handleLogin = async (provider) => {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
+        provider: provider,
         options: {
           redirectTo: window.location.origin
         }
@@ -2847,6 +2871,7 @@ export default function KakiSplit() {
   }, []);
 
   const [showQROnboarding, setShowQROnboarding] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
   useEffect(() => {
     if (user && profile && !profile.qr_url && !localStorage.getItem("ks_qr_skipped")) {
@@ -2888,24 +2913,31 @@ export default function KakiSplit() {
             />
           )}
 
+          {showAuthModal && (
+            <AuthModal 
+              onClose={() => setShowAuthModal(false)} 
+              onLogin={handleLogin} 
+            />
+          )}
+
           {!showQROnboarding && !mode && (
             <LandingPage
-              onHost={user ? () => setMode("host") : handleLogin}
+              onHost={user ? () => setMode("host") : () => setShowAuthModal(true)}
               onGuest={() => setMode("guest-code")}
-              onScanExcel={user ? () => setMode("scan-excel") : handleLogin}
+              onScanExcel={user ? () => setMode("scan-excel") : () => setShowAuthModal(true)}
               onReturnTable={code => {
                 if (user) {
                   localStorage.setItem("ks_current_code", code);
                   setMode("host-return");
                 } else {
-                  handleLogin();
+                  setShowAuthModal(true);
                 }
               }}
               currency={currency}
               onCurrencyChange={changeCurrency}
               user={user}
               profile={profile}
-              onLogin={handleLogin}
+              onLogin={() => setShowAuthModal(true)}
               onProfile={() => setMode("profile")}
             />
           )}
