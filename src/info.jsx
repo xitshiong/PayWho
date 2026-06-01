@@ -607,16 +607,46 @@ function InfoPage() {
         }
 
         @media (max-width: 720px) {
-          .hero-body { grid-template-columns: 1fr; padding-bottom: clamp(40px, 8vh, 64px); }
-          .hero-receipt-wrap { gap: clamp(10px, 3vw, 20px); justify-content: center; }
-          .hero-img { width: clamp(140px, 42vw, 240px); }
+          .hero {
+            min-height: 100svh;
+            padding: 20px 20px 40px;
+          }
+          .hero-body {
+            grid-template-columns: 1fr;
+            gap: 32px;
+            padding-bottom: 0;
+            align-items: start;
+          }
+          .hero-text { max-width: 100%; }
+          .hero-receipt-wrap {
+            justify-content: center;
+            gap: 0;
+            transform: none;
+          }
+          .hero-img { width: clamp(130px, 38vw, 200px); }
+          .hero-simple-arrow { width: 36px; height: 36px; margin: 0 -18px; }
           .features-inner { grid-template-columns: 1fr; }
           .features-content-left { margin-bottom: clamp(24px, 4vw, 40px); }
+          .section-footer .inner > div { flex-direction: column; gap: 24px; }
+          .btn-dark { width: 100%; text-align: center; box-sizing: border-box; }
         }
 
         @media (max-width: 480px) {
+          .hero { padding: 20px 16px 36px; }
+          h1 { font-size: clamp(3.8rem, 18vw, 6rem); }
+          .hero-tagline { font-size: 0.82rem; }
+          .btn-primary { height: 3rem; font-size: 0.78rem; padding-left: 1.5rem; padding-right: 1.5rem; }
+          .receipt-card { padding: 24px 16px 20px; }
           .rc-step { grid-template-columns: auto 1fr; }
           .rc-step-check { display: none; }
+          .section-how { padding: 48px 16px; }
+          .section-features { padding: 48px 16px; }
+          .section-footer { padding: 56px 16px; }
+          .massive-title { font-size: clamp(3.5rem, 16vw, 6rem); }
+          .feat-num { font-size: clamp(1.4rem, 7vw, 2rem); }
+          .button { width: 80px; height: 80px; }
+          .button__text > span { inset: 5px; }
+          .button__circle { width: 32px; height: 32px; }
         }
       `}</style>
 
