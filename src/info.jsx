@@ -202,6 +202,9 @@ function InfoPage() {
         .btn-primary-inner-static {
           pointer-events: none;
           display: block;
+          transition:
+            transform 1.4s cubic-bezier(0.19, 1, 0.22, 1),
+            opacity 0.3s linear;
         }
 
         .btn-primary:hover .btn-primary-inner-static {
