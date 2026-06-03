@@ -24,7 +24,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: './index.html',
-        app: './app/index.html'
+        app: './app/index.html',
+        privacy: './privacy.html'
       },
       output: {
         manualChunks: {

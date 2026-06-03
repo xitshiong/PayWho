@@ -833,6 +833,13 @@ function InfoPage() {
         </div>
       </section>
 
+      <footer style={{ background: 'var(--ink)', borderTop: '1px solid oklch(94.8% 0.014 82 / 0.08)', padding: '24px clamp(20px, 5vw, 56px)', textAlign: 'center', position: 'relative', zIndex: 1 }}>
+        <p style={{ fontSize: '0.72rem', color: 'oklch(94.8% 0.014 82 / 0.35)', letterSpacing: '0.08em' }}>
+          © 2026 KakiSplit &nbsp;·&nbsp;
+          <a href="/privacy.html" style={{ color: 'oklch(94.8% 0.014 82 / 0.5)', textDecoration: 'none' }}>Privacy Policy</a>
+        </p>
+      </footer>
+
       <script dangerouslySetInnerHTML={{
         __html: `
           document.addEventListener('click', (e) => {
