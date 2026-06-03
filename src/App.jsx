@@ -1999,7 +1999,10 @@ STRICT EXTRACTION RULES:
     });
   }, [paidMap, items, step]);
 
+  const [finalising, setFinalising] = useState(false);
   const finalise = async () => {
+    if (finalising) return;
+    setFinalising(true);
     const c = genCode();
     // Save to list of all host tables
     const existing = JSON.parse(localStorage.getItem("ks_tables") || "[]");
@@ -2016,6 +2019,7 @@ STRICT EXTRACTION RULES:
     setCode(c);
     setPaidMap(initialPaid);
     setStep(4);
+    setFinalising(false);
   };
   // Poll paid status every 2s once live
   useEffect(() => {
@@ -2217,7 +2221,7 @@ STRICT EXTRACTION RULES:
             </>
           )}
           <div style={{ marginTop: 16 }}>
-            <button className="btn btn-ink" disabled={!qrImg} onClick={finalise}>🔗 Generate Table Link →</button>
+            <button className="btn btn-ink" disabled={!qrImg || finalising} onClick={finalise}>🔗 {finalising ? "Generating..." : "Generate Table Link →"}</button>
             {!qrImg && <div className="error-strip" style={{ marginTop: 12 }}>Upload your payment QR to continue — guests need it to pay you.</div>}
             <button className="btn btn-outline" onClick={() => setStep(2)}>← Back</button>
           </div>
