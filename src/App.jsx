@@ -1636,15 +1636,14 @@ function ScanToExcel({ onHome, currency }) {
   const scanReceipt = async () => {
     setLoading(true); setErr("");
     try {
-      const OR_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
-      const res = await fetch(`https://openrouter.ai/api/v1/chat/completions`, {
+      const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OR_KEY}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash-lite",
-          messages: [{ role: "user", content: [
-            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } },
-            { type: "text", text: `You are an expert OCR accounting auditor. Extract line items from this receipt image with 100% precision.
+          contents: [{ parts: [
+            { inline_data: { mime_type: "image/jpeg", data: b64 } },
+            { text: `You are an expert OCR accounting auditor. Extract line items from this receipt image with 100% precision.
 
 RETURN ONLY THIS JSON SCHEMA (no markdown formatting, no backticks, no prose):
 {"items":[{"name":"Item Name","price":12.50,"qty":2}],"tax":1.50,"serviceCharge":2.00,"discount":0}
@@ -1658,12 +1657,11 @@ STRICT EXTRACTION RULES:
 6. CLEAN NAMES: Remove asterisks (*), hashtags (#), bullet points, currency symbols from names.
 7. ONLY EXTRACT LINES WITH PRICES: If a line has no price number, do NOT add it to items array.` }
           ]}],
-          temperature: 0.1,
-          max_tokens: 8192
+          generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
         })
       });
       const data = await res.json();
-      const txt = data.choices?.[0]?.message?.content || "";
+      const txt = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
       const parsed = JSON.parse(txt.replace(/```json|```/g, "").trim());
       setItems((parsed.items || []).map((it, i) => ({ id: i, name: it.name, price: parseFloat(it.price || 0), qty: parseInt(it.qty || 1) })));
       setTax(parseFloat(parsed.tax || 0));
@@ -1838,31 +1836,21 @@ function HostView({ onHome, currency, user, profile }) {
   const parseReceipt = async () => {
     setLoading(true); setErr("");
     try {
-      const OR_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
+      const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY;
       const allBakedItems = [];
       let globalIdCounter = 1;
 
       for (const receipt of receipts) {
         const res = await fetch(
-          `https://openrouter.ai/api/v1/chat/completions`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
           {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${OR_KEY}`
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              model: "google/gemini-2.5-flash-lite",
-              messages: [{
-                role: "user",
-                content: [
-                  {
-                    type: "image_url",
-                    image_url: { url: `data:image/jpeg;base64,${receipt.b64}` }
-                  },
-                  {
-                    type: "text",
-                    text: `You are an expert OCR accounting auditor. Extract line items from this receipt image with 100% precision.
+              contents: [{
+                parts: [
+                  { inline_data: { mime_type: "image/jpeg", data: receipt.b64 } },
+                  { text: `You are an expert OCR accounting auditor. Extract line items from this receipt image with 100% precision.
 
 RETURN ONLY THIS JSON SCHEMA (no markdown formatting, no backticks, no prose):
 {
@@ -1888,17 +1876,15 @@ STRICT EXTRACTION RULES:
    - discount: The total discount amount (return as a POSITIVE number).
    - rounding: The rounding adjustment (can be positive or negative, e.g. -0.02).
    - grandTotal: The final amount paid.
-8. MATHEMATICAL CHECK: Ensure: sum(items price * items qty) - discount + tax + serviceCharge + rounding = grandTotal. If the numbers don't perfectly balance, adjust the "rounding" field by a few cents until they do.`
-                  }
+8. MATHEMATICAL CHECK: Ensure: sum(items price * items qty) - discount + tax + serviceCharge + rounding = grandTotal. If the numbers don't perfectly balance, adjust the "rounding" field by a few cents until they do.` }
                 ]
               }],
-              temperature: 0.1,
-              max_tokens: 8192
+              generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
             })
           }
         );
         const data = await res.json();
-        const txt = data.choices?.[0]?.message?.content || "";
+        const txt = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
         const parsed = JSON.parse(txt.replace(/```json|```/g, "").trim());
 
         // Filter out invalid items (price <= 0 or missing)
