@@ -1808,7 +1808,19 @@ function HostView({ onHome, currency, user, profile }) {
 
       const b64Str = await new Promise((resolve) => {
         const r = new FileReader();
-        r.onload = e => resolve(e.target.result.split(",")[1]);
+        r.onload = e => {
+          const img = new Image();
+          img.onload = () => {
+            const MAX = 1280;
+            const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+            const canvas = document.createElement("canvas");
+            canvas.width = img.width * scale;
+            canvas.height = img.height * scale;
+            canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL("image/jpeg", 0.8).split(",")[1]);
+          };
+          img.src = e.target.result;
+        };
         r.readAsDataURL(f);
       });
 
