@@ -1265,7 +1265,7 @@ function sendLocalNotification(title, body) {
 
 function genCode() { return Math.floor(1000 + Math.random() * 9000).toString(); }
 async function save(d) {
-  const { data, error } = await supabase.from("sessions").upsert({
+  const { error } = await supabase.from("sessions").upsert({
     code: d.code,
     items: d.items,
     qr_image: d.qrImage || null,
@@ -1273,7 +1273,7 @@ async function save(d) {
     table_name: d.tableName || "My Table",
     table_date: d.tableDate || new Date().toISOString().split("T")[0]
   });
-  console.log("SAVE RESULT:", data, error);
+  if (error) throw new Error(error.message);
 }
 
 async function load(code) {
@@ -2003,23 +2003,24 @@ STRICT EXTRACTION RULES:
   const finalise = async () => {
     if (finalising) return;
     setFinalising(true);
-    const c = genCode();
-    // Save to list of all host tables
-    const existing = JSON.parse(localStorage.getItem("ks_tables") || "[]");
-    existing.unshift({ code: c, name: tableName || "My Table", date: tableDate });
-    localStorage.setItem("ks_tables", JSON.stringify(existing));
-    localStorage.setItem("ks_current_code", c);
-    localStorage.setItem("ks_current_name", tableName || "My Table");
-    localStorage.setItem("ks_current_date", tableDate);
-
-    // Pre-populate paid map with host splits
-    const initialPaid = {};
-
-    await save({ code: c, items, qrImage: qrImg, tableName: tableName || "My Table", tableDate, paid: initialPaid });
-    setCode(c);
-    setPaidMap(initialPaid);
-    setStep(4);
-    setFinalising(false);
+    try {
+      const c = genCode();
+      const existing = JSON.parse(localStorage.getItem("ks_tables") || "[]");
+      existing.unshift({ code: c, name: tableName || "My Table", date: tableDate });
+      localStorage.setItem("ks_tables", JSON.stringify(existing));
+      localStorage.setItem("ks_current_code", c);
+      localStorage.setItem("ks_current_name", tableName || "My Table");
+      localStorage.setItem("ks_current_date", tableDate);
+      const initialPaid = {};
+      await save({ code: c, items, qrImage: qrImg, tableName: tableName || "My Table", tableDate, paid: initialPaid });
+      setCode(c);
+      setPaidMap(initialPaid);
+      setStep(4);
+    } catch (e) {
+      setErr("Failed to create table: " + e.message);
+    } finally {
+      setFinalising(false);
+    }
   };
   // Poll paid status every 2s once live
   useEffect(() => {
