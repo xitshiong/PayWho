@@ -2787,6 +2787,13 @@ export default function KakiSplit() {
       setUser(session?.user ?? null);
       if (session?.user) {
         await fetchProfile(session.user.id);
+        if (event === "SIGNED_IN") {
+          const intended = localStorage.getItem("ks_post_login_mode");
+          if (intended) {
+            localStorage.removeItem("ks_post_login_mode");
+            setMode(intended);
+          }
+        }
       } else {
         setProfile(null);
       }
@@ -2832,8 +2839,9 @@ export default function KakiSplit() {
     }
   };
 
-  const handleLogin = async (provider) => {
+  const handleLogin = async (provider, intendedMode = "host") => {
     try {
+      localStorage.setItem("ks_post_login_mode", intendedMode);
       const { error } = await supabase.auth.signInWithOAuth({
         provider: provider,
         options: {
