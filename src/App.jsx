@@ -2789,10 +2789,22 @@ export default function KakiSplit() {
         await fetchProfile(session.user.id);
         // Check for post-login redirect on sign-in OR initial session recovery (OAuth redirect)
         if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {
-          const intended = localStorage.getItem("ks_post_login_mode");
-          if (intended) {
-            localStorage.removeItem("ks_post_login_mode");
-            setMode(intended);
+          const stored = localStorage.getItem("ks_post_login_mode");
+          if (stored) {
+            try {
+              const { mode, ts } = JSON.parse(stored);
+              // Only restore if set within last 60 seconds (fresh OAuth redirect)
+              if (Date.now() - ts < 60000) {
+                localStorage.removeItem("ks_post_login_mode");
+                setMode(mode);
+              } else {
+                // Stale, clean up
+                localStorage.removeItem("ks_post_login_mode");
+              }
+            } catch (e) {
+              // Old format or corrupt, clean up
+              localStorage.removeItem("ks_post_login_mode");
+            }
           }
         }
       } else {
@@ -2842,7 +2854,7 @@ export default function KakiSplit() {
 
   const handleLogin = async (provider, intendedMode = "host") => {
     try {
-      localStorage.setItem("ks_post_login_mode", intendedMode);
+      localStorage.setItem("ks_post_login_mode", JSON.stringify({ mode: intendedMode, ts: Date.now() }));
       const { error } = await supabase.auth.signInWithOAuth({
         provider: provider,
         options: {
