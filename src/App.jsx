@@ -2860,6 +2860,7 @@ export default function KakiSplit() {
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
+    setMode(null);
   };
 
   const [currency, setCurrency] = useState(() => {
