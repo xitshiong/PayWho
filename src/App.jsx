@@ -2787,7 +2787,8 @@ export default function KakiSplit() {
       setUser(session?.user ?? null);
       if (session?.user) {
         await fetchProfile(session.user.id);
-        if (event === "SIGNED_IN") {
+        // Check for post-login redirect on sign-in OR initial session recovery (OAuth redirect)
+        if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {
           const intended = localStorage.getItem("ks_post_login_mode");
           if (intended) {
             localStorage.removeItem("ks_post_login_mode");
