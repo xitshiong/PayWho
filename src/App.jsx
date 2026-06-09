@@ -2003,16 +2003,48 @@ STRICT EXTRACTION RULES:
   const finalise = async () => {
     if (finalising) return;
     setFinalising(true);
+    setErr("");
     try {
-      const c = genCode();
+      let c;
+      let attempt = 0;
+      let success = false;
+      const initialPaid = {};
+      
+      while (!success && attempt < 10) {
+        c = genCode();
+        // Check if code exists
+        const { data } = await supabase.from("sessions").select("code").eq("code", c).limit(1);
+        if (data && data.length > 0) {
+          attempt++;
+          continue;
+        }
+        
+        // Attempt to insert
+        const { error } = await supabase.from("sessions").insert({
+          code: c,
+          items,
+          qr_image: qrImg || null,
+          paid: initialPaid,
+          table_name: tableName || "My Table",
+          table_date: tableDate || new Date().toISOString().split("T")[0]
+        });
+        
+        if (error) {
+          attempt++;
+        } else {
+          success = true;
+        }
+      }
+      
+      if (!success) throw new Error("Could not find an empty table code. Please try again.");
+
       const existing = JSON.parse(localStorage.getItem("ks_tables") || "[]");
       existing.unshift({ code: c, name: tableName || "My Table", date: tableDate });
       localStorage.setItem("ks_tables", JSON.stringify(existing));
       localStorage.setItem("ks_current_code", c);
       localStorage.setItem("ks_current_name", tableName || "My Table");
       localStorage.setItem("ks_current_date", tableDate);
-      const initialPaid = {};
-      await save({ code: c, items, qrImage: qrImg, tableName: tableName || "My Table", tableDate, paid: initialPaid });
+      
       setCode(c);
       setPaidMap(initialPaid);
       setStep(4);
@@ -2223,7 +2255,8 @@ STRICT EXTRACTION RULES:
           )}
           <div style={{ marginTop: 16 }}>
             <button className="btn btn-ink" disabled={!qrImg || finalising} onClick={finalise}>🔗 {finalising ? "Generating..." : "Generate Table Link →"}</button>
-            {!qrImg && <div className="error-strip" style={{ marginTop: 12 }}>Upload your payment QR to continue — guests need it to pay you.</div>}
+            {err && <div className="error-strip" style={{ marginTop: 12 }}>{err}</div>}
+            {!qrImg && !err && <div className="error-strip" style={{ marginTop: 12 }}>Upload your payment QR to continue — guests need it to pay you.</div>}
             <button className="btn btn-outline" onClick={() => setStep(2)}>← Back</button>
           </div>
         </div>}
