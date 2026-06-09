@@ -2361,15 +2361,30 @@ function ProfileView({ onHome, user, profile, setProfile, onLogout }) {
     if (!f?.type.startsWith("image/")) return;
     setUploading(true);
 
-    // Upload to Supabase Storage or just Base64 for simplicity in MVP
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const b64 = e.target.result;
-      const { error } = await supabase.from('profiles').update({ qr_url: b64 }).eq('id', user.id);
-      if (!error) setProfile(prev => ({ ...prev, qr_url: b64 }));
+    try {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = new Image();
+        img.onload = async () => {
+          const max = 400;
+          const scale = Math.min(1, max / Math.max(img.width, img.height));
+          const canvas = document.createElement("canvas");
+          canvas.width = img.width * scale;
+          canvas.height = img.height * scale;
+          canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+          const b64 = canvas.toDataURL("image/jpeg", 0.7);
+
+          const { error } = await supabase.from('profiles').update({ qr_url: b64 }).eq('id', user.id);
+          if (!error) setProfile(prev => ({ ...prev, qr_url: b64 }));
+          setUploading(false);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(f);
+    } catch (e) {
+      console.error(e);
       setUploading(false);
-    };
-    reader.readAsDataURL(f);
+    }
   };
 
   return (
@@ -2391,7 +2406,7 @@ function ProfileView({ onHome, user, profile, setProfile, onLogout }) {
           <div className="vault-title">🛡️ Personal QR</div>
           <p className="vault-desc">Save your default payment QR code here. It will be pre-filled every time you start a table.</p>
 
-          <div className="vault-qr-area" onClick={() => fileRef.current.click()}>
+          <div className="vault-qr-area" onClick={() => captureImage(fileRef, handleQR)}>
             {profile?.qr_url ? (
               <img src={profile.qr_url} alt="Default QR" className="vault-qr-preview" />
             ) : (
