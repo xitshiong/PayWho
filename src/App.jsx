@@ -2406,7 +2406,7 @@ function ProfileView({ onHome, user, profile, setProfile, onLogout }) {
           <div className="vault-title">🛡️ Personal QR</div>
           <p className="vault-desc">Save your default payment QR code here. It will be pre-filled every time you start a table.</p>
 
-          <div className="vault-qr-area" onClick={() => captureImage(fileRef, handleQR)}>
+          <div className="vault-qr-area" onClick={() => fileRef.current.click()}>
             {profile?.qr_url ? (
               <img src={profile.qr_url} alt="Default QR" className="vault-qr-preview" />
             ) : (
