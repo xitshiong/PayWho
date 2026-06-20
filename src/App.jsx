@@ -1271,6 +1271,42 @@ function sendLocalNotification(title, body) {
 }
 
 function genCode() { return Math.floor(1000 + Math.random() * 9000).toString(); }
+
+function withTimeout(promise, ms = 20000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Request timed out. Check your connection and try again.")), ms)
+    ),
+  ]);
+}
+
+function isDuplicateCodeError(error) {
+  return error?.code === "23505" || /duplicate key/i.test(error?.message || "");
+}
+
+function prepareQrForSave(qr) {
+  if (!qr?.startsWith("data:")) return Promise.resolve(qr || null);
+  const compress = new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const max = 400;
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/jpeg", 0.7));
+    };
+    img.onerror = () => resolve(qr);
+    img.src = qr;
+  });
+  return Promise.race([
+    compress,
+    new Promise((resolve) => setTimeout(() => resolve(qr), 5000)),
+  ]);
+}
+
 async function save(d) {
   const { error } = await supabase.from("sessions").upsert({
     code: d.code,
@@ -2012,38 +2048,38 @@ STRICT EXTRACTION RULES:
     setFinalising(true);
     setErr("");
     try {
+      const qrForSave = await prepareQrForSave(qrImg);
       let c;
-      let attempt = 0;
       let success = false;
       const initialPaid = {};
-      
-      while (!success && attempt < 10) {
+
+      for (let attempt = 0; attempt < 10 && !success; attempt++) {
         c = genCode();
-        // Check if code exists
-        const { data } = await supabase.from("sessions").select("code").eq("code", c).limit(1);
-        if (data && data.length > 0) {
-          attempt++;
-          continue;
-        }
-        
-        // Attempt to insert
-        const { error } = await supabase.from("sessions").insert({
-          code: c,
-          items,
-          qr_image: qrImg || null,
-          paid: initialPaid,
-          table_name: tableName || "My Table",
-          table_date: tableDate || new Date().toISOString().split("T")[0]
-        });
-        
-        if (error) {
-          attempt++;
-        } else {
+        const { error } = await withTimeout(
+          supabase.from("sessions").insert({
+            code: c,
+            items,
+            qr_image: qrForSave,
+            paid: initialPaid,
+            table_name: tableName || "My Table",
+            table_date: tableDate || new Date().toISOString().split("T")[0]
+          })
+        );
+
+        if (!error) {
           success = true;
+        } else if (isDuplicateCodeError(error)) {
+          continue;
+        } else {
+          throw new Error(error.message);
         }
       }
-      
-      if (!success) throw new Error("Could not find an empty table code. Please try again.");
+
+      if (!success) throw new Error("Could not create table. Please try again.");
+
+      if (qrForSave?.startsWith("data:")) {
+        localStorage.setItem(`ks_qr_${c}`, qrForSave);
+      }
 
       const existing = JSON.parse(localStorage.getItem("ks_tables") || "[]");
       existing.unshift({ code: c, name: tableName || "My Table", date: tableDate });
@@ -2051,7 +2087,7 @@ STRICT EXTRACTION RULES:
       localStorage.setItem("ks_current_code", c);
       localStorage.setItem("ks_current_name", tableName || "My Table");
       localStorage.setItem("ks_current_date", tableDate);
-      
+
       setCode(c);
       setPaidMap(initialPaid);
       setStep(4);
