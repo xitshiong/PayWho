@@ -5,7 +5,12 @@ import { Analytics } from "@vercel/analytics/react"
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
+  import.meta.env.VITE_SUPABASE_ANON_KEY,
+  {
+    global: {
+      fetch: (...args) => fetch(...args),
+    },
+  }
 );
 
 const LOGO_SRC = "/kakisplit-logo.png";
@@ -1251,7 +1256,9 @@ function sendLocalNotification(title, body) {
   };
 
   try {
-    if ('serviceWorker' in navigator) {
+    // We check if an active Service Worker exists to use the robust showNotification.
+    // If not, we fall back to the standard new Notification API.
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
       navigator.serviceWorker.ready.then(reg => {
         reg.showNotification(title, options);
       });
@@ -2817,8 +2824,13 @@ export default function KakiSplit() {
   const [profile, setProfile] = useState(null);
 
   useEffect(() => {
+    // Unregister any existing Service Workers to prevent iOS Safari fetch stalling bugs
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(e => console.error("SW failed:", e));
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for(let registration of registrations) {
+          registration.unregister();
+        }
+      });
     }
 
     // Haptic feedback on button clicks
