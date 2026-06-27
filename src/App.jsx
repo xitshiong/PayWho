@@ -1699,6 +1699,74 @@ function isDuplicateCodeError(error) {
   return error?.code === "23505" || /duplicate key/i.test(error?.message || "");
 }
 
+function extractGeminiResponseText(data) {
+  if (data?.error) {
+    throw new Error(data.error.message || "Gemini API error");
+  }
+  const candidate = data?.candidates?.[0];
+  if (!candidate?.content?.parts?.length) {
+    const block = data?.promptFeedback?.blockReason;
+    if (block) throw new Error(`Receipt blocked: ${block}`);
+    const reason = candidate?.finishReason;
+    throw new Error(reason ? `No response (${reason})` : "No response from AI. Try again.");
+  }
+  const parts = candidate.content.parts;
+  const answerParts = parts.filter(p => p.text && !p.thought);
+  const text = (answerParts.length ? answerParts : parts.filter(p => p.text))
+    .map(p => p.text)
+    .join("\n")
+    .trim();
+  if (!text) throw new Error("Empty AI response. Try a clearer photo.");
+  return text;
+}
+
+function parseReceiptJson(txt) {
+  const cleaned = txt.replace(/```json\s*|```/gi, "").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    }
+    throw new Error("Couldn't parse receipt data from AI response.");
+  }
+}
+
+async function callGeminiReceiptOcr(b64, prompt) {
+  const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!GEMINI_KEY) {
+    throw new Error("Scanning is not configured. Missing API key.");
+  }
+  const res = await withTimeout(fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { inline_data: { mime_type: "image/jpeg", data: b64 } },
+            { text: prompt }
+          ]
+        }],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 8192,
+          thinkingConfig: { thinkingBudget: 0 },
+          responseMimeType: "application/json"
+        }
+      })
+    }
+  ));
+  const data = await res.json();
+  if (!res.ok && !data?.error) {
+    throw new Error(`Scan request failed (${res.status})`);
+  }
+  return parseReceiptJson(extractGeminiResponseText(data));
+}
+
 function prepareQrForSave(qr) {
   if (!qr?.startsWith("data:")) return Promise.resolve(qr || null);
   const compress = new Promise((resolve) => {
@@ -2067,170 +2135,6 @@ function GuestView({ session, onBack, currency }) {
   );
 }
 
-// ── SCAN TO EXCEL ─────────────────────────────────────────────
-function ScanToExcel({ onHome, currency }) {
-  const [img, setImg] = useState(null);
-  const [b64, setB64] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState("");
-  const [drag, setDrag] = useState(false);
-  const [items, setItems] = useState([]);
-  const [tax, setTax] = useState(0);
-  const [sc, setSc] = useState(0);
-  const [discount, setDiscount] = useState(0);
-  const [copied, setCopied] = useState(false);
-  const fileRef = useRef();
-
-  const handleFile = f => {
-    if (!f?.type.startsWith("image/")) return;
-    setImg(URL.createObjectURL(f));
-    const r = new FileReader();
-    r.onload = e => setB64(e.target.result.split(",")[1]);
-    r.readAsDataURL(f);
-    setErr(""); setItems([]); setCopied(false);
-  };
-
-  const scanReceipt = async () => {
-    setLoading(true); setErr("");
-    try {
-      const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [
-            { inline_data: { mime_type: "image/jpeg", data: b64 } },
-            { text: `You are an expert OCR accounting auditor. Extract line items from this receipt image with 100% precision.
-
-RETURN ONLY THIS JSON SCHEMA (no markdown formatting, no backticks, no prose):
-{"items":[{"name":"Item Name","price":12.50,"qty":2}],"tax":1.50,"serviceCharge":2.00,"discount":0}
-
-STRICT EXTRACTION RULES:
-1. ITEM PRICE: Extract ONLY items that have a price on the SAME line. If "Burger 2 20.00", unit price is 10.00. Do NOT include currency symbols.
-2. EXCLUDE NON-ITEMS: DO NOT include Subtotal, Tax, Service Charge, Discount, Rounding, Cash, Change, or Total rows in the "items" array.
-3. EXCLUDE SUB-ITEMS: Lines indented below a meal/set with NO price (like "Fries", "Coca Cola") are NOT separate items. Skip them completely.
-4. MODIFIERS: Lines with NO price like "Less Sugar" are modifiers. Append to parent: "Latte (Less Sugar)".
-5. FINANCIAL FIELDS: Use 0 if absent. discount must be positive number.
-6. CLEAN NAMES: Remove asterisks (*), hashtags (#), bullet points, currency symbols from names.
-7. ONLY EXTRACT LINES WITH PRICES: If a line has no price number, do NOT add it to items array.` }
-          ]}],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
-        })
-      });
-      const data = await res.json();
-      const txt = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      const parsed = JSON.parse(txt.replace(/```json|```/g, "").trim());
-      setItems((parsed.items || []).map((it, i) => ({ id: i, name: it.name, price: parseFloat(it.price || 0), qty: parseInt(it.qty || 1) })));
-      setTax(parseFloat(parsed.tax || 0));
-      setSc(parseFloat(parsed.serviceCharge || 0));
-      setDiscount(parseFloat(parsed.discount || 0));
-    } catch (e) { setErr("Couldn't read receipt. Try a clearer photo."); }
-    setLoading(false);
-  };
-
-  const copyForExcel = () => {
-    const subtotal = items.reduce((s, it) => s + it.price * it.qty, 0);
-    const extras = tax + sc - discount;
-    const rows = ["Item Name\tPrice\tTax\tTotal"];
-    items.forEach(it => {
-      const lineTotalRaw = it.price * it.qty;
-      const proportion = subtotal > 0 ? lineTotalRaw / subtotal : 0;
-      const itemTaxTotal = extras * proportion;
-      const itemTaxUnit = itemTaxTotal / it.qty;
-      const itemFinalTotal = (it.price + itemTaxUnit) * it.qty;
-      rows.push(`${it.name}\t${it.price.toFixed(2)}\t${itemTaxUnit.toFixed(2)}\t${(it.price + itemTaxUnit).toFixed(2)}`);
-    });
-    rows.push(`\t\t\t`);
-    rows.push(`Subtotal\t${subtotal.toFixed(2)}\t\t`);
-    if (tax > 0) rows.push(`Tax (SST)\t\t${tax.toFixed(2)}\t`);
-    if (sc > 0) rows.push(`Service Charge\t\t${sc.toFixed(2)}\t`);
-    if (discount > 0) rows.push(`Discount\t\t-${discount.toFixed(2)}\t`);
-    rows.push(`Grand Total\t\t\t${(subtotal + extras).toFixed(2)}`);
-    navigator.clipboard.writeText(rows.join("\n"));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
-  };
-
-  const upd = (id, f, v) => setItems(its => its.map(it => it.id === id ? { ...it, [f]: v } : it));
-
-  return (
-    <div className="receipt">
-      <div className="header-receipt">
-        <button className="home-btn" onClick={onHome}>
-          <span className="home-btn-icon">⌂</span>
-          <span className="home-btn-label">Home</span>
-        </button>
-        <img src={LOGO_SRC} alt="KakiSplit" className="logo-img" />
-        <div className="logo-tagline">Split bills lah, no drama</div>
-        <div><span className="badge-strip">📊 Scan to Excel</span></div>
-      </div>
-
-      <div className="section">
-        <div className="section-head">Scan your receipt</div>
-        <div className="section-sub">Extract items & copy straight into Excel</div>
-
-        {!img ? (
-          <div className={`upload-zone ${drag ? "drag" : ""}`}
-            onClick={() => fileRef.current.click()}
-            onDragOver={e => { e.preventDefault(); setDrag(true); }}
-            onDragLeave={() => setDrag(false)}
-            onDrop={e => { e.preventDefault(); setDrag(false); handleFile(e.dataTransfer.files[0]); }}>
-            <input ref={fileRef} type="file" accept="image/*" onChange={e => handleFile(e.target.files[0])} />
-            <span className="upload-emoji">📸</span>
-            <div className="upload-label">Tap to snap or upload</div>
-            <div className="upload-hint">Any receipt · JPG, PNG, HEIC</div>
-          </div>
-        ) : (
-          <>
-            <img src={img} className="preview-img" alt="Receipt" />
-            {err && <div className="error-strip">⚠ {err}</div>}
-            {loading ? (
-              <div className="loading-receipt">
-                <div className="spinner" />
-                <div className="loading-label">Extracting items...</div>
-                <div className="loading-sub">Reading your receipt</div>
-              </div>
-            ) : items.length === 0 ? (
-              <>
-                <button className="btn btn-ink" onClick={scanReceipt}>Extract Items →</button>
-                <button className="btn btn-outline" onClick={() => { setImg(null); setB64(null); setErr(""); }}>Try another photo</button>
-              </>
-            ) : null}
-          </>
-        )}
-
-        {items.length > 0 && (
-          <>
-            <div style={{ marginTop: 16, marginBottom: 8 }}>
-              {items.map(it => (
-                <div key={it.id} className="line-item">
-                  <input className="item-name-in" value={it.name} onChange={e => upd(it.id, "name", e.target.value)} />
-                  <input className="item-price-in" type="number" step="1" min="1" value={it.qty}
-                    onChange={e => upd(it.id, "qty", parseInt(e.target.value) || 1)}
-                    style={{ width: 36, textAlign: "center" }} title="Qty" />
-                  <span className="rm-tag">{currency}</span>
-                  <input className="item-price-in" type="number" step="0.01" value={it.price} onChange={e => upd(it.id, "price", parseFloat(e.target.value) || 0)} />
-                </div>
-              ))}
-              <div className="total-row grand" style={{ marginTop: 12 }}>
-                <span className="total-label">GRAND TOTAL</span>
-                <span className="total-val">{currency} {(items.reduce((s, it) => s + it.price * it.qty, 0) + tax + sc - discount).toFixed(2)}</span>
-              </div>
-            </div>
-
-            <button className="btn btn-ink" onClick={copyForExcel} style={{ background: copied ? "var(--neon-lime)" : undefined, color: copied ? "var(--ink)" : undefined }}>
-              {copied ? "✅ Copied! Paste into Excel" : "📋 Copy for Excel"}
-            </button>
-            <button className="btn btn-outline" onClick={() => { setImg(null); setB64(null); setItems([]); setErr(""); setCopied(false); }}>
-              Scan another receipt
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── HOST VIEW ─────────────────────────────────────────────────
 function HostView({ onHome, currency, user, profile }) {
   const [step, setStep] = useState(0);
@@ -2293,21 +2197,11 @@ function HostView({ onHome, currency, user, profile }) {
   const parseReceipt = async () => {
     setLoading(true); setErr("");
     try {
-      const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY;
       const allBakedItems = [];
       let globalIdCounter = 1;
 
       for (const receipt of receipts) {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{
-                parts: [
-                  { inline_data: { mime_type: "image/jpeg", data: receipt.b64 } },
-                  { text: `You are an expert OCR accounting auditor. Extract line items from this receipt image with 100% precision.
+        const parsed = await callGeminiReceiptOcr(receipt.b64, `You are an expert OCR accounting auditor. Extract line items from this receipt image with 100% precision.
 
 RETURN ONLY THIS JSON SCHEMA (no markdown formatting, no backticks, no prose):
 {
@@ -2333,16 +2227,7 @@ STRICT EXTRACTION RULES:
    - discount: The total discount amount (return as a POSITIVE number).
    - rounding: The rounding adjustment (can be positive or negative, e.g. -0.02).
    - grandTotal: The final amount paid.
-8. MATHEMATICAL CHECK: Ensure: sum(items price * items qty) - discount + tax + serviceCharge + rounding = grandTotal. If the numbers don't perfectly balance, adjust the "rounding" field by a few cents until they do.` }
-                ]
-              }],
-              generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
-            })
-          }
-        );
-        const data = await res.json();
-        const txt = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        const parsed = JSON.parse(txt.replace(/```json|```/g, "").trim());
+8. MATHEMATICAL CHECK: Ensure: sum(items price * items qty) - discount + tax + serviceCharge + rounding = grandTotal. If the numbers don't perfectly balance, adjust the "rounding" field by a few cents until they do.`);
 
         // Filter out invalid items (price <= 0 or missing)
         const rawItems = (parsed.items || []).filter(it => {
@@ -2400,7 +2285,7 @@ STRICT EXTRACTION RULES:
       setStep(1);
     } catch (e) {
       console.error("Auditor error:", e);
-      setErr("Auditor Error: Couldn't verify the receipt balance. Try a clearer photo.");
+      setErr(e.message || "Auditor Error: Couldn't verify the receipt balance. Try a clearer photo.");
     }
     setLoading(false);
   };
@@ -3152,7 +3037,7 @@ function QROnboarding({ onSkip, user, profile, setProfile }) {
 }
 
 // ── LANDING PAGE ──────────────────────────────────────────────
-function LandingPage({ onHost, onGuest, onScanExcel, onReturnTable, currency, onCurrencyChange, user, profile, onLogin, onProfile }) {
+function LandingPage({ onHost, onGuest, onReturnTable, currency, onCurrencyChange, user, profile, onLogin, onProfile }) {
   const tables = JSON.parse(localStorage.getItem("ks_tables") || "[]");
 
   const oldTables = tables.filter(t => {
@@ -3255,13 +3140,6 @@ function LandingPage({ onHost, onGuest, onScanExcel, onReturnTable, currency, on
           ))}
         </div>
       )}
-
-      <div className="landing-footer">
-        <div className="tool-chip" onClick={onScanExcel}>
-          <span className="tool-chip-icon">📊</span>
-          <span className="tool-chip-label">Scan to Excel</span>
-        </div>
-      </div>
     </div>
   );
 }
@@ -3459,7 +3337,6 @@ export default function KakiSplit() {
             <LandingPage
               onHost={user ? () => setMode("host") : () => setShowAuthModal(true)}
               onGuest={() => setMode("guest-code")}
-              onScanExcel={user ? () => setMode("scan-excel") : () => setShowAuthModal(true)}
               onReturnTable={code => {
                 if (user) {
                   localStorage.setItem("ks_current_code", code);
@@ -3479,7 +3356,6 @@ export default function KakiSplit() {
 
           {mode === "host" && <HostView onHome={() => setMode(null)} currency={currency} user={user} profile={profile} />}
           {mode === "host-return" && <HostReturn onHome={() => setMode(null)} currency={currency} user={user} profile={profile} />}
-          {mode === "scan-excel" && <ScanToExcel onHome={() => setMode(null)} currency={currency} />}
           {mode === "profile" && <ProfileView onHome={() => setMode(null)} user={user} profile={profile} setProfile={setProfile} onLogout={handleLogout} />}
 
           {mode === "guest" && guestSession && (
