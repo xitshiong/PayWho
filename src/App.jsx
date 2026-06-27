@@ -3163,6 +3163,52 @@ export default function KakiSplit() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
 
+  const fetchProfile = async (currentUser) => {
+    if (!currentUser) return;
+    const uid = currentUser.id;
+
+    const { data, error } = await supabase.from('profiles').select('*').eq('id', uid).single();
+
+    const meta = currentUser.user_metadata || {};
+    const gName = meta.full_name || meta.name || currentUser.email?.split("@")[0] || "Host";
+    const gPic = meta.avatar_url || meta.picture || "";
+
+    if (data) {
+      if (!data.full_name || !data.avatar_url) {
+        const { data: updated } = await supabase.from('profiles').update({
+          full_name: data.full_name || gName,
+          avatar_url: data.avatar_url || gPic
+        }).eq('id', uid).select().single();
+        if (updated) setProfile(updated);
+      } else {
+        setProfile(data);
+      }
+    } else if (error && error.code === 'PGRST116') {
+      const { data: created } = await supabase.from('profiles').insert({
+        id: uid,
+        full_name: gName,
+        avatar_url: gPic
+      }).select().single();
+      if (created) setProfile(created);
+    }
+  };
+
+  const restorePostLoginMode = () => {
+    const stored = localStorage.getItem("ks_post_login_mode");
+    if (!stored) return;
+    try {
+      const { mode: savedMode, ts } = JSON.parse(stored);
+      if (Date.now() - ts < 60000) {
+        localStorage.removeItem("ks_post_login_mode");
+        setMode(savedMode);
+      } else {
+        localStorage.removeItem("ks_post_login_mode");
+      }
+    } catch {
+      localStorage.removeItem("ks_post_login_mode");
+    }
+  };
+
   useEffect(() => {
     // Unregister any existing Service Workers to prevent iOS Safari fetch stalling bugs
     if ("serviceWorker" in navigator) {
@@ -3182,75 +3228,60 @@ export default function KakiSplit() {
     };
     document.addEventListener('click', handleClick, { passive: true });
 
-    // Listen for Auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        await fetchProfile(session.user.id);
-        // Check for post-login redirect on sign-in OR initial session recovery (OAuth redirect)
-        if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {
-          const stored = localStorage.getItem("ks_post_login_mode");
-          if (stored) {
-            try {
-              const { mode, ts } = JSON.parse(stored);
-              // Only restore if set within last 60 seconds (fresh OAuth redirect)
-              if (Date.now() - ts < 60000) {
-                localStorage.removeItem("ks_post_login_mode");
-                setMode(mode);
-              } else {
-                // Stale, clean up
-                localStorage.removeItem("ks_post_login_mode");
-              }
-            } catch (e) {
-              // Old format or corrupt, clean up
-              localStorage.removeItem("ks_post_login_mode");
+    let mounted = true;
+    let subscription = null;
+
+    const init = async () => {
+      const tableCode = new URLSearchParams(window.location.search).get("table");
+
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!mounted) return;
+
+        setUser(session?.user ?? null);
+        if (session?.user) fetchProfile(session.user);
+
+        const { data: { subscription: sub } } = supabase.auth.onAuthStateChange((event, session) => {
+          setUser(session?.user ?? null);
+          if (session?.user) {
+            fetchProfile(session.user);
+            if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {
+              if (!tableCode) restorePostLoginMode();
             }
+          } else {
+            setProfile(null);
           }
+        });
+        subscription = sub;
+
+        if (tableCode) {
+          const s = await load(tableCode);
+          if (!mounted) return;
+          if (s) {
+            setGuestSession(s);
+            setMode("guest");
+          } else {
+            setMode("notfound");
+          }
+        } else {
+          restorePostLoginMode();
         }
-      } else {
-        setProfile(null);
+      } catch (e) {
+        console.error("Init failed:", e);
+        if (mounted && tableCode) setMode("notfound");
+      } finally {
+        if (mounted) setInitializing(false);
       }
-      setInitializing(false);
-    });
+    };
+
+    init();
 
     return () => {
+      mounted = false;
       document.removeEventListener('click', handleClick);
-      subscription.unsubscribe();
+      subscription?.unsubscribe();
     };
   }, []);
-
-  const fetchProfile = async (uid) => {
-    const { data: { user: currentUser } } = await supabase.auth.getUser();
-    if (!currentUser) return;
-
-    const { data, error } = await supabase.from('profiles').select('*').eq('id', uid).single();
-
-    // Google metadata fallbacks
-    const meta = currentUser.user_metadata || {};
-    const gName = meta.full_name || meta.name || currentUser.email.split("@")[0];
-    const gPic = meta.avatar_url || meta.picture || "";
-
-    if (data) {
-      // Refresh profile if name/photo is missing but available in metadata
-      if (!data.full_name || !data.avatar_url) {
-        const { data: updated } = await supabase.from('profiles').update({
-          full_name: data.full_name || gName,
-          avatar_url: data.avatar_url || gPic
-        }).eq('id', uid).select().single();
-        if (updated) setProfile(updated);
-      } else {
-        setProfile(data);
-      }
-    } else if (error && error.code === 'PGRST116') {
-      // Create profile if missing
-      const { data: created } = await supabase.from('profiles').insert({
-        id: uid,
-        full_name: gName,
-        avatar_url: gPic
-      }).select().single();
-      if (created) setProfile(created);
-    }
-  };
 
   const handleLogin = async (provider, intendedMode = "host") => {
     try {
@@ -3280,20 +3311,6 @@ export default function KakiSplit() {
     if (saved === "RM") return "MYR"; // Migration
     return saved || "MYR";
   });
-
-  useEffect(() => {
-    const p = new URLSearchParams(window.location.search);
-    const t = p.get("table");
-    if (t) {
-      load(t).then(s => {
-        if (s) { setGuestSession(s); setMode("guest"); }
-        else setMode("notfound");
-        setInitializing(false);
-      });
-    } else {
-      setInitializing(false);
-    }
-  }, []);
 
   const [showQROnboarding, setShowQROnboarding] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
