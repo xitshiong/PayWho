@@ -1768,25 +1768,29 @@ async function callGeminiReceiptOcr(b64, prompt) {
 }
 
 function prepareQrForSave(qr) {
-  if (!qr?.startsWith("data:")) return Promise.resolve(qr || null);
-  const compress = new Promise((resolve) => {
+  if (!qr) return Promise.resolve(null);
+  if (!qr.startsWith("data:")) return Promise.resolve(qr);
+  if (qr.length < 80000) return Promise.resolve(qr);
+
+  return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const max = 400;
-      const scale = Math.min(1, max / Math.max(img.width, img.height));
-      const canvas = document.createElement("canvas");
-      canvas.width = img.width * scale;
-      canvas.height = img.height * scale;
-      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL("image/jpeg", 0.7));
+      const compress = (max, quality) => {
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL("image/jpeg", quality);
+      };
+      let result = compress(320, 0.65);
+      if (result.length > 80000) result = compress(240, 0.5);
+      if (result.length > 80000) result = compress(180, 0.4);
+      resolve(result);
     };
     img.onerror = () => resolve(qr);
     img.src = qr;
   });
-  return Promise.race([
-    compress,
-    new Promise((resolve) => setTimeout(() => resolve(qr), 5000)),
-  ]);
 }
 
 async function save(d) {
@@ -2354,16 +2358,14 @@ STRICT EXTRACTION RULES:
 
       for (let attempt = 0; attempt < 10 && !success; attempt++) {
         c = genCode();
-        const { error } = await withTimeout(
-          supabase.from("sessions").insert({
-            code: c,
-            items,
-            qr_image: qrForSave,
-            paid: initialPaid,
-            table_name: tableName || "My Table",
-            table_date: tableDate || new Date().toISOString().split("T")[0]
-          })
-        );
+        const { error } = await supabase.from("sessions").insert({
+          code: c,
+          items,
+          qr_image: null,
+          paid: initialPaid,
+          table_name: tableName || "My Table",
+          table_date: tableDate || new Date().toISOString().split("T")[0]
+        });
 
         if (!error) {
           success = true;
@@ -2376,8 +2378,18 @@ STRICT EXTRACTION RULES:
 
       if (!success) throw new Error("Could not create table. Please try again.");
 
-      if (qrForSave?.startsWith("data:")) {
-        localStorage.setItem(`ks_qr_${c}`, qrForSave);
+      if (qrForSave) {
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const { error: qrError } = await supabase
+            .from("sessions")
+            .update({ qr_image: qrForSave })
+            .eq("code", c);
+          if (!qrError) break;
+          await new Promise(r => setTimeout(r, 800));
+        }
+        if (qrForSave.startsWith("data:")) {
+          localStorage.setItem(`ks_qr_${c}`, qrForSave);
+        }
       }
 
       const existing = JSON.parse(localStorage.getItem("ks_tables") || "[]");
