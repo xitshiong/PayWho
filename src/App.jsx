@@ -1699,25 +1699,15 @@ function isDuplicateCodeError(error) {
   return error?.code === "23505" || /duplicate key/i.test(error?.message || "");
 }
 
-function extractGeminiResponseText(data) {
+function extractOpenRouterResponseText(data) {
   if (data?.error) {
-    throw new Error(data.error.message || "Gemini API error");
+    throw new Error(data.error.message || data.error || "OpenRouter API error");
   }
-  const candidate = data?.candidates?.[0];
-  if (!candidate?.content?.parts?.length) {
-    const block = data?.promptFeedback?.blockReason;
-    if (block) throw new Error(`Receipt blocked: ${block}`);
-    const reason = candidate?.finishReason;
-    throw new Error(reason ? `No response (${reason})` : "No response from AI. Try again.");
+  const text = data?.choices?.[0]?.message?.content || "";
+  if (!text.trim()) {
+    throw new Error("Empty AI response. Try a clearer photo.");
   }
-  const parts = candidate.content.parts;
-  const answerParts = parts.filter(p => p.text && !p.thought);
-  const text = (answerParts.length ? answerParts : parts.filter(p => p.text))
-    .map(p => p.text)
-    .join("\n")
-    .trim();
-  if (!text) throw new Error("Empty AI response. Try a clearer photo.");
-  return text;
+  return text.trim();
 }
 
 function parseReceiptJson(txt) {
@@ -1734,29 +1724,30 @@ function parseReceiptJson(txt) {
   }
 }
 
-async function callGeminiReceiptOcr(b64, prompt) {
-  const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!GEMINI_KEY) {
+async function callReceiptOcr(b64, prompt) {
+  const OR_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
+  if (!OR_KEY) {
     throw new Error("Scanning is not configured. Missing API key.");
   }
   const res = await withTimeout(fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+    "https://openrouter.ai/api/v1/chat/completions",
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OR_KEY}`
+      },
       body: JSON.stringify({
-        contents: [{
-          parts: [
-            { inline_data: { mime_type: "image/jpeg", data: b64 } },
-            { text: prompt }
+        model: "google/gemini-2.5-flash",
+        messages: [{
+          role: "user",
+          content: [
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } },
+            { type: "text", text: prompt }
           ]
         }],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 8192,
-          thinkingConfig: { thinkingBudget: 0 },
-          responseMimeType: "application/json"
-        }
+        temperature: 0.1,
+        max_tokens: 8192
       })
     }
   ));
@@ -1764,7 +1755,7 @@ async function callGeminiReceiptOcr(b64, prompt) {
   if (!res.ok && !data?.error) {
     throw new Error(`Scan request failed (${res.status})`);
   }
-  return parseReceiptJson(extractGeminiResponseText(data));
+  return parseReceiptJson(extractOpenRouterResponseText(data));
 }
 
 function prepareQrForSave(qr) {
@@ -2205,7 +2196,7 @@ function HostView({ onHome, currency, user, profile }) {
       let globalIdCounter = 1;
 
       for (const receipt of receipts) {
-        const parsed = await callGeminiReceiptOcr(receipt.b64, `You are an expert OCR accounting auditor. Extract line items from this receipt image with 100% precision.
+        const parsed = await callReceiptOcr(receipt.b64, `You are an expert OCR accounting auditor. Extract line items from this receipt image with 100% precision.
 
 RETURN ONLY THIS JSON SCHEMA (no markdown formatting, no backticks, no prose):
 {
